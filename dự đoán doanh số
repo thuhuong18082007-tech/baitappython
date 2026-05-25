@@ -1,5 +1,6 @@
 import os
 import sys
+from pathlib import Path
 import pandas as pd
 import numpy as np
 import matplotlib.pyplot as plt
@@ -8,9 +9,15 @@ from sklearn.model_selection import train_test_split
 from sklearn.linear_model import LinearRegression
 from sklearn.metrics import mean_absolute_error, r2_score
 
+BASE_DIR = Path(__file__).resolve().parent
+DEFAULT_DATA_PATH = BASE_DIR / "Financial-Analytics-data1.csv"
 
-def load_data(path: str = "Financial-Analytics-data1.csv") -> pd.DataFrame:
-    if not os.path.exists(path):
+
+def load_data(path: str | Path = DEFAULT_DATA_PATH) -> pd.DataFrame:
+    path = Path(path)
+    if not path.is_absolute():
+        path = BASE_DIR / path
+    if not path.exists():
         raise FileNotFoundError(f"Không tìm thấy file dữ liệu '{path}'")
 
     df = pd.read_csv(path)
@@ -121,7 +128,7 @@ except Exception:
 
 if _HAS_STREAMLIT:
     @st.cache_data
-    def load_data_cached(path: str = "Financial-Analytics-data1.csv") -> pd.DataFrame:
+     def load_data_cached(path: str | Path = DEFAULT_DATA_PATH) -> pd.DataFrame:
         return load_data(path)
 
     @st.cache_data
@@ -148,7 +155,8 @@ if _HAS_STREAMLIT:
         try:
             data = load_data_cached()
         except FileNotFoundError:
-            st.error("Không tìm thấy file dữ liệu 'Financial-Analytics-data1.csv' trong thư mục hiện tại.")
+                  except FileNotFoundError as exc:
+            st.error(str(exc))
             return
 
         st.sidebar.header("Bộ lọc dữ liệu")
@@ -160,6 +168,14 @@ if _HAS_STREAMLIT:
         )
 
         filtered_data = data[data["Market_Cap_Category"].isin(selected_categories)] if categories else data
+        
+        if filtered_data.empty:
+            st.warning("Không có dữ liệu sau khi áp dụng bộ lọc. Vui lòng chọn ít nhất một nhóm hoặc xóa bộ lọc.")
+            return
+
+        if len(filtered_data) < 2:
+            st.warning("Cần ít nhất 2 dòng dữ liệu để huấn luyện mô hình.")
+            return
 
         model, mae, r2 = train_model_for_app(filtered_data)
 
@@ -167,17 +183,27 @@ if _HAS_STREAMLIT:
 
         with col1:
             st.subheader("Scatter plot: Mar Cap vs Sales Qtr")
-            chart = alt.Chart(filtered_data).mark_circle(size=60).encode(
-                x="Mar Cap - Crore",
-                y="Sales Qtr - Crore",
-                color="Market_Cap_Category",
-                tooltip=[
+             tooltip_columns = [
+                col for col in [
                     "Name",
                     "Mar Cap - Crore",
                     "Sales Qtr - Crore",
                     "Market_Cap_Category",
                     "Sales_Qrt_Category",
-                ],
+                ]
+                if col in filtered_data.columns
+            ]
+            color_encoding = (
+                "Market_Cap_Category"
+                if "Market_Cap_Category" in filtered_data.columns
+                else alt.value("steelblue")
+            )
+
+            chart = alt.Chart(filtered_data).mark_circle(size=60).encode(
+                x="Mar Cap - Crore",
+                y="Sales Qtr - Crore",
+                color=color_encoding,
+                tooltip=tooltip_columns,
             ).interactive()
             st.altair_chart(chart, use_container_width=True)
 
